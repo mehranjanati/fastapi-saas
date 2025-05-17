@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redis Cache Analytics Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,.1);
+        }
+        .stats-card {
+            text-align: center;
+            padding: 20px;
+        }
+        .stats-value {
+            font-size: 2.5rem;
+            font-weight: bold;
+        }
+        .stats-label {
+            font-size: 1.1rem;
+            color: #666;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1>Redis Cache Analytics Dashboard</h1>
+            <button id="refreshBtn" class="btn btn-primary">Refresh Data</button>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="hitRate">--</div>
+                    <div class="stats-label">Cache Hit Rate</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="totalRequests">--</div>
+                    <div class="stats-label">Total Requests</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="timeSaved">--</div>
+                    <div class="stats-label">Time Saved (s)</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card stats-card">
+                    <div class="stats-value" id="avgTimeSaved">--</div>
+                    <div class="stats-label">Avg. Time Saved (ms)</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mb-4">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Cache Hit/Miss Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="hitMissChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Hourly Performance</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="hourlyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Top Queries by Time Saved</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="topQueriesChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>Query Details</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Query Name</th>
+                                    <th>Hits</th>
+                                    <th>Misses</th>
+                                    <th>Hit Rate</th>
+                                    <th>Avg. Time Saved (ms)</th>
+                                    <th>Total Time Saved (s)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="queryTable">
+                                <!-- Query data will be inserted here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Chart objects
+        let hitMissChart, hourlyChart, topQueriesChart;
+        
+        // Initialize charts
+        function initCharts() {
+            // Hit/Miss pie chart
+            const hitMissCtx = document.getElementById('hitMissChart').getContext('2d');
+            hitMissChart = new Chart(hitMissCtx, {
+                type: 'pie',
+                data: {
+                    labels: ['Cache Hits', 'Cache Misses'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#36A2EB', '#FF6384']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+            
+            // Hourly performance chart
+            const hourlyCtx = document.getElementById('hourlyChart').getContext('2d');
+            hourlyChart = new Chart(hourlyCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Hit Rate (%)',
+                        data: [],
+                        backgroundColor: '#36A2EB'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100
+                        }
+                    }
+                }
+            });
+            
+            // Top queries chart
+            const topQueriesCtx = document.getElementById('topQueriesChart').getContext('2d');
+            topQueriesChart = new Chart(topQueriesCtx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Avg Time Saved (ms)',
+                        data: [],
+                        backgroundColor: '#4BC0C0'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y'
+                }
+            });
+        }
+        
+        // Fetch and update dashboard data
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/cache/metrics', {
+                    headers: {
+                        'Authorization': `Bearer ${getToken()}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch metrics');
+                }
+                
+                const data = await response.json();
+                updateStats(data);
+                updateCharts(data);
+                updateQueryTable(data);
+            } catch (error) {
+                console.error('Error fetching metrics:', error);
+                alert('Error fetching metrics. Please check your authentication.');
+            }
+        }
+        
+        // Update summary statistics
+        function updateStats(data) {
+            document.getElementById('hitRate').textContent = `${data.hit_rate.toFixed(2)}%`;
+            document.getElementById('totalRequests').textContent = data.total_requests;
+            document.getElementById('timeSaved').textContent = (data.total_saved_ms / 1000).toFixed(2);
+            document.getElementById('avgTimeSaved').textContent = data.avg_time_saved_ms.toFixed(2);
+        }
+        
+        // Update charts with new data
+        function updateCharts(data) {
+            // Update hit/miss chart
+            hitMissChart.data.datasets[0].data = [data.hits, data.misses];
+            hitMissChart.update();
+            
+            // Update hourly chart
+            const hourlyLabels = [];
+            const hourlyData = [];
+            
+            Object.entries(data.hourly_stats)
+                .sort(([hourA], [hourB]) => hourA.localeCompare(hourB))
+                .forEach(([hour, stats]) => {
+                    // Format hour for display (just show the hour part)
+                    const hourPart = hour.split(':')[1];
+                    hourlyLabels.push(hourPart);
+                    
+                    // Calculate hit rate
+                    const total = stats.hits + stats.misses;
+                    const hitRate = total > 0 ? (stats.hits / total) * 100 : 0;
+                    hourlyData.push(hitRate.toFixed(2));
+                });
+            
+            hourlyChart.data.labels = hourlyLabels;
+            hourlyChart.data.datasets[0].data = hourlyData;
+            hourlyChart.update();
+            
+            // Update top queries chart
+            const queryLabels = data.top_queries.map(q => q.name);
+            const queryData = data.top_queries.map(q => q.avg_time_saved_ms.toFixed(2));
+            
+            topQueriesChart.data.labels = queryLabels;
+            topQueriesChart.data.datasets[0].data = queryData;
+            topQueriesChart.update();
+        }
+        
+        // Update the query details table
+        function updateQueryTable(data) {
+            const tableBody = document.getElementById('queryTable');
+            tableBody.innerHTML = '';
+            
+            // Create row for each query
+            data.top_queries.forEach(query => {
+                const row = document.createElement('tr');
+                
+                const nameCell = document.createElement('td');
+                nameCell.textContent = query.name;
+                
+                const hitsCell = document.createElement('td');
+                hitsCell.textContent = query.total_hits;
+                
+                const missesCell = document.createElement('td');
+                missesCell.textContent = query.total_misses;
+                
+                const hitRateCell = document.createElement('td');
+                hitRateCell.textContent = `${query.hit_rate.toFixed(2)}%`;
+                
+                const avgTimeCell = document.createElement('td');
+                avgTimeCell.textContent = query.avg_time_saved_ms.toFixed(2);
+                
+                const totalTimeCell = document.createElement('td');
+                const totalTimeSaved = (query.total_hits * query.avg_time_saved_ms) / 1000;
+                totalTimeCell.textContent = totalTimeSaved.toFixed(2);
+                
+                row.appendChild(nameCell);
+                row.appendChild(hitsCell);
+                row.appendChild(missesCell);
+                row.appendChild(hitRateCell);
+                row.appendChild(avgTimeCell);
+                row.appendChild(totalTimeCell);
+                
+                tableBody.appendChild(row);
+            });
+            
+            // If no queries, show message
+            if (data.top_queries.length === 0) {
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 6;
+                cell.textContent = 'No cache metrics available';
+                cell.style.textAlign = 'center';
+                row.appendChild(cell);
+                tableBody.appendChild(row);
+            }
+        }
+        
+        // Get auth token from localStorage
+        function getToken() {
+            return localStorage.getItem('auth_token') || '';
+        }
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            updateDashboard();
+            
+            // Refresh button handler
+            document.getElementById('refreshBtn').addEventListener('click', updateDashboard);
+            
+            // Auto-refresh every 30 seconds
+            setInterval(updateDashboard, 30000);
+        });
+    </script>
+</body>
+</html> 

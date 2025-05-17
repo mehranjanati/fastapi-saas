@@ -1,0 +1,297 @@
+{
+  "name": "Notification Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "notifications",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract notification data\nconst data = $input.item.json;\n\n// Set defaults if missing\ndata.priority = data.priority || 'normal';\ndata.timestamp = data.timestamp || new Date().toISOString();\n\n// Format notification\nreturn {\n  json: {\n    notification_id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,\n    user_id: data.user_id,\n    type: data.type,\n    message: data.message,\n    priority: data.priority,\n    timestamp: data.timestamp,\n    metadata: data.metadata || {}\n  }\n};"
+      },
+      "id": "format-notification",
+      "name": "Format Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.priority }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-priority",
+      "name": "Check Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.priority }}",
+              "value2": "high",
+              "operation": "equals"
+            }
+          ]
+        }
+      },
+      "id": "high-priority",
+      "name": "Is High Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "requestMethod": "POST",
+        "url": "={{ $env.NOTIFICATION_SERVICE_URL }}/urgent-notifications",
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "notification_id",
+              "value": "={{ $json.notification_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "id": "urgent-notification",
+      "name": "Send Urgent Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "notifications@example.com",
+        "toEmail": "={{ $json.metadata.email }}",
+        "subject": "={{ \"URGENT: \" + $json.type + \" Notification\" }}",
+        "text": "={{ \"Dear User,\\n\\n\" + $json.message + \"\\n\\nThis is an urgent notification. Please take immediate action.\\n\\nThank you,\\nThe Team\" }}",
+        "options": {}
+      },
+      "id": "send-email",
+      "name": "Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        100
+      ],
+      "credentials": {
+        "smtp": "smtp-account"
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.FASTAPI_BASE_URL }}/api/workflow/webhook/notification",
+        "authentication": "genericCredentialType",
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "notification_sent"
+            },
+            {
+              "name": "notification_id",
+              "value": "={{ $json.notification_id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "type",
+              "value": "={{ $json.type }}"
+            },
+            {
+              "name": "priority",
+              "value": "={{ $json.priority }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "id": "notify-api",
+      "name": "Notify API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log notification\nconsole.log(`Standard notification sent to ${$json.user_id}: ${$json.message}`);\n\n// Return confirmation\nreturn {\n  json: {\n    success: true,\n    message: `Notification sent: ${$json.notification_id}`,\n    notification: $json\n  }\n};"
+      },
+      "id": "log-notification",
+      "name": "Log Standard Notification",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "webhook-trigger": {
+      "main": [
+        [
+          {
+            "node": "format-notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format-notification": {
+      "main": [
+        [
+          {
+            "node": "check-priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-priority": {
+      "main": [
+        [
+          {
+            "node": "high-priority",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "notify-api",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "high-priority": {
+      "main": [
+        [
+          {
+            "node": "urgent-notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "log-notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "urgent-notification": {
+      "main": [
+        [
+          {
+            "node": "send-email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send-email": {
+      "main": [
+        [
+          {
+            "node": "notify-api",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "log-notification": {
+      "main": [
+        [
+          {
+            "node": "notify-api",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "",
+  "triggerCount": 0,
+  "tags": [
+    {
+      "name": "notifications"
+    },
+    {
+      "name": "fastapi"
+    }
+  ]
+} 

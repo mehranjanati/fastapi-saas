@@ -1,0 +1,53 @@
+version: '3'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_EXPIRATION=3600
+      - HASURA_ENDPOINT=https://moving-firefly-92.hasura.app/v1/graphql
+      - HASURA_ADMIN_SECRET=sq1AZtO4UgdMRwCZ4F2R00JGLEm2DJhTVKE4Db0jt852Zi2V6ljzMWDZ3HnNL55D
+      - JWT_SECRET=your-jwt-secret
+      - N8N_BASE_URL=http://n8n:5678
+    depends_on:
+      - redis
+      - n8n
+    volumes:
+      - ./:/app
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=n8n
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=password
+      - FASTAPI_BASE_URL=http://api:8000
+      - NOTIFICATION_SERVICE_URL=http://api:8000/api
+    volumes:
+      - n8n-data:/home/node/.n8n
+    restart: unless-stopped
+
+volumes:
+  redis-data:
+  n8n-data: 

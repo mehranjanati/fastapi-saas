@@ -1,0 +1,243 @@
+{
+  "name": "Order Processing Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orders",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        250,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract order data from the webhook\nconst orderData = $input.item.json;\n\n// Add timestamp\norderData.processed_at = new Date().toISOString();\n\n// Add status\norderData.status = \"processing\";\n\n// Return the enriched data\nreturn { json: orderData };"
+      },
+      "id": "process-order",
+      "name": "Process Order",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "requestMethod": "POST",
+        "url": "={{ $env.FASTAPI_BASE_URL }}/api/workflow/webhook/order_process",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "responseFormat": "json"
+            }
+          }
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "event_type",
+              "value": "order_processed"
+            },
+            {
+              "name": "order_id",
+              "value": "={{ $json.id }}"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "status",
+              "value": "={{ $json.status }}"
+            },
+            {
+              "name": "processed_at",
+              "value": "={{ $json.processed_at }}"
+            },
+            {
+              "name": "details",
+              "value": "={{ $json.details }}"
+            }
+          ]
+        }
+      },
+      "id": "notify-api",
+      "name": "Notify API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        750,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.success }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-success",
+      "name": "API Response Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log success\nconsole.log(`Order ${$input.item.json.order_id} processed successfully`);\n\n// Return success result\nreturn { json: { success: true, message: \"Order processed successfully\", order_id: $input.item.json.order_id } };"
+      },
+      "id": "success-handler",
+      "name": "Success Handler",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log error\nconsole.error(`Error processing order: ${JSON.stringify($input.item.json)}`);\n\n// Return error result\nreturn { json: { success: false, message: \"Error processing order\", error: $input.item.json } };"
+      },
+      "id": "error-handler",
+      "name": "Error Handler",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        1250,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "genericCredentialType",
+        "requestMethod": "POST",
+        "url": "={{ $env.NOTIFICATION_SERVICE_URL }}/api/notify",
+        "options": {},
+        "bodyParametersUi": {
+          "parameter": [
+            {
+              "name": "type",
+              "value": "order_confirmation"
+            },
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ \"Your order \" + $json.order_id + \" has been processed successfully!\" }}"
+            }
+          ]
+        }
+      },
+      "id": "send-notification",
+      "name": "Send Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "webhook-trigger": {
+      "main": [
+        [
+          {
+            "node": "process-order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "process-order": {
+      "main": [
+        [
+          {
+            "node": "notify-api",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify-api": {
+      "main": [
+        [
+          {
+            "node": "check-success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check-success": {
+      "main": [
+        [
+          {
+            "node": "success-handler",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "error-handler",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "success-handler": {
+      "main": [
+        [
+          {
+            "node": "send-notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "",
+  "triggerCount": 0,
+  "tags": [
+    {
+      "name": "orders"
+    },
+    {
+      "name": "fastapi"
+    }
+  ]
+} 
